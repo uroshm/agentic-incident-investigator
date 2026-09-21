@@ -1,0 +1,11 @@
+meta {
+  name: Disable DB pool exhaustion
+  type: http
+  seq: 5
+}
+
+post {
+  url: http://localhost:8080/admin/incidents/db-pool-exhaustion/disable
+  body: none
+  auth: none
+}

@@ -1,0 +1,67 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: incident_agent
+      POSTGRES_USER: incident_agent
+      POSTGRES_PASSWORD: incident_agent
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U incident_agent -d incident_agent"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  flyway:
+    image: flyway/flyway:10-alpine
+    command: >-
+      -url=jdbc:postgresql://postgres:5432/incident_agent
+      -user=incident_agent
+      -password=incident_agent
+      -connectRetries=60
+      migrate
+    volumes:
+      - ./infra/flyway/sql:/flyway/sql:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  business-saas:
+    build:
+      context: .
+      dockerfile: services/business_saas/Dockerfile
+    environment:
+      BUSINESS_SAAS_HOST: 0.0.0.0
+    ports:
+      - "8080:8080"
+
+  incident-agent:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+    ports:
+      - "8090:8090"
+    depends_on:
+      flyway:
+        condition: service_completed_successfully
+      business-saas:
+        condition: service_started
+    environment:
+      BUSINESS_SAAS_URL: http://business-saas:8080
+      DATABASE_URL: postgresql://incident_agent:incident_agent@postgres:5432/incident_agent
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      business-saas:
+        condition: service_started
+
+volumes:
+  postgres-data:

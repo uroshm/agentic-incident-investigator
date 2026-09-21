@@ -1,0 +1,22 @@
+meta {
+  name: Investigate incident
+  type: http
+  seq: 8
+}
+
+post {
+  url: http://localhost:8090/investigate
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "service": "checkout-service",
+    "description": "HTTP 500 errors after deployment 184"
+  }
+}
