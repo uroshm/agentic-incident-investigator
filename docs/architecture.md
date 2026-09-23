@@ -15,9 +15,10 @@ Investigator -> ToolGateway -> explicit tool adapters -> logs, metrics, git...
 access level. Read tools can run immediately; state-changing tools require an
 explicit approval flag. Unknown tools and shell commands are rejected.
 
-`Investigator` is intentionally deterministic in this bootstrap. It exercises
-the full evidence and audit path with mock data, while leaving a clear seam for
-a model-backed planner and live adapters.
+The running incident agent uses the local Ollama-backed planner. The mock SaaS
+remains the target system for the demo, but diagnosis and recommendations come
+from the model's tool-calling investigation loop rather than a deterministic
+hypothesis table.
 
 ## Next slices
 

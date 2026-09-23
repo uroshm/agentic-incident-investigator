@@ -52,11 +52,20 @@ services:
     environment:
       BUSINESS_SAAS_URL: http://business-saas:8080
       DATABASE_URL: postgresql://incident_agent:incident_agent@postgres:5432/incident_agent
-      INVESTIGATION_MODE: ${INVESTIGATION_MODE:-rules}
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434}
       LLM_MODEL: ${LLM_MODEL:-llama3.1:8b}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      incident-agent:
+        condition: service_started
 
   prometheus:
     image: prom/prometheus:v3.5.0

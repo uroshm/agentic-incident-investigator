@@ -20,21 +20,37 @@ By default, the script uses Ollama running on the host with the local
 `llama3.1:8b` model. It verifies Ollama, pulls the model if needed, configures
 the agent, and starts Compose.
 
-Other modes:
+Ollama can also run inside Docker:
 
 ```bash
 ./scripts/start.sh --docker-ollama
-./scripts/start.sh --rules
 ```
 
 Services:
 
 - SaaS: http://localhost:8080
-- Investigator: http://localhost:8090
+- Investigator API: http://localhost:8090
+- Frontend: http://localhost:3000
 - Prometheus: http://localhost:9090
 - PostgreSQL: localhost:5432
 
-Flyway automatically applies [V1__initial_schema.sql](infra/flyway/sql/V1__initial_schema.sql).
+Flyway automatically applies the migrations in [infra/flyway/sql](infra/flyway/sql).
+
+## Investigation console
+
+Open http://localhost:3000/ to start and monitor investigations, browse persisted history, and review completed reports. The page polls active runs and displays final results when they complete.
+
+The console is a React/Vite frontend bundled into the incident-agent image. For frontend development, run `npm install && npm run dev` from `frontend/`; Vite proxies API calls to the agent on port 8090.
+
+Investigation monitoring endpoints:
+
+- `POST /investigate/async` starts a background investigation and returns a run ID
+- `GET /investigations/live` returns running, completed, and failed in-memory runs
+- `GET /api/models` lists installed Ollama models and the approved download catalog
+- `POST /api/models/pull` downloads an approved model through Ollama
+- `GET /api/models/pull/{jobId}` reports model-download progress
+
+The default downloadable models are `llama3.1:8b`, `qwen2.5:7b`, and `mistral:7b`. Override the catalog with `OLLAMA_ALLOWED_MODELS`, as a comma-separated list. Downloads go to the configured Ollama runtime and persist in its host installation or Docker volume.
 
 ## Trigger and investigate an incident
 
@@ -76,13 +92,12 @@ Disable the failure:
 curl -X POST http://localhost:8080/admin/incidents/db-pool-exhaustion/disable
 ```
 
-The default mode uses an explainable deterministic baseline. To use a local
-Ollama model on macOS, start Ollama on the host, pull a model, and start
-Compose with:
+The incident agent always uses the local Ollama model. There is no deterministic
+or rules-based production fallback. To use host Ollama directly:
 
 ```bash
 ollama pull llama3.1:8b
-INVESTIGATION_MODE=ollama docker compose up --build
+LLM_BASE_URL=http://host.docker.internal:11434 docker compose up --build
 ```
 
 The model is bounded to the registered read-only tools and its evidence must
@@ -96,7 +111,7 @@ the `ollama` service as the model endpoint:
 ```bash
 docker compose --profile ollama up -d ollama
 docker compose --profile ollama exec ollama ollama pull llama3.1:8b
-LLM_BASE_URL=http://ollama:11434 INVESTIGATION_MODE=ollama \
+LLM_BASE_URL=http://ollama:11434 \
   docker compose --profile ollama up --build
 ```
 

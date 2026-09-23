@@ -53,4 +53,12 @@ class InvestigationResult:
                 for e in self.evidence
             ],
             "recommendedActions": [r.action for r in self.recommendations],
+            "recommendations": [
+                {
+                    "action": r.action,
+                    "reason": r.reason,
+                    "requiresApproval": r.requires_approval,
+                }
+                for r in self.recommendations
+            ],
         }

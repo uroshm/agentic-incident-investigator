@@ -5,3 +5,21 @@ dist/
 build/
 *.egg-info/
 .pytest_cache/
+
+# Node / frontend artifacts
+node_modules/
+frontend/dist/
+*.tgz
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local tooling and generated output
+.ruff_cache/
+.mypy_cache/
+.coverage
+coverage/
+reports/
+.DS_Store
+.env
+!.env.example

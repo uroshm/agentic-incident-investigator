@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Callable
 from urllib.request import Request, urlopen
 
 from .tools.gateway import ToolGateway
@@ -53,3 +53,27 @@ class OllamaClient:
         )
         with urlopen(request, timeout=self.timeout_seconds) as response:
             return json.loads(response.read().decode("utf-8"))
+
+    def list_models(self) -> list[str]:
+        """Return models currently installed in this Ollama instance."""
+        request = Request(f"{self.base_url}/api/tags", method="GET")
+        with urlopen(request, timeout=self.timeout_seconds) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        return [
+            str(item["name"]) for item in payload.get("models", []) if item.get("name")
+        ]
+
+    def pull_model(
+        self, model: str, on_update: Callable[[dict[str, Any]], None]
+    ) -> None:
+        """Pull a model from Ollama and report each native progress event."""
+        request = Request(
+            f"{self.base_url}/api/pull",
+            data=json.dumps({"name": model, "stream": True}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request, timeout=None) as response:
+            for line in response:
+                if line.strip():
+                    on_update(json.loads(line.decode("utf-8")))

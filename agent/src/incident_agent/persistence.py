@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Any, Protocol
 
 from .models import Incident, InvestigationResult
@@ -12,9 +13,11 @@ class InvestigationRepository(Protocol):
         incident: Incident,
         result: InvestigationResult,
         audit_events: list[dict[str, Any]],
-    ) -> None: ...
+    ) -> int: ...
 
     def list_reports(self) -> list[dict[str, Any]]: ...
+
+    def get_report(self, investigation_id: int) -> dict[str, Any] | None: ...
 
     def get_trace(self, investigation_id: int) -> list[dict[str, Any]]: ...
 
@@ -29,14 +32,26 @@ class InMemoryRepository:
         incident: Incident,
         result: InvestigationResult,
         audit_events: list[dict[str, Any]],
-    ) -> None:
+    ) -> int:
         report = result.as_dict()
         report["investigationId"] = len(self.reports) + 1
+        report["createdAt"] = datetime.now(timezone.utc).isoformat()
         self.reports.append(report)
         self.traces[report["investigationId"]] = list(result.trace)
+        return report["investigationId"]
 
     def list_reports(self) -> list[dict[str, Any]]:
         return list(self.reports)
+
+    def get_report(self, investigation_id: int) -> dict[str, Any] | None:
+        return next(
+            (
+                dict(report)
+                for report in self.reports
+                if report["investigationId"] == investigation_id
+            ),
+            None,
+        )
 
     def get_trace(self, investigation_id: int) -> list[dict[str, Any]]:
         return list(self.traces.get(investigation_id, []))
@@ -56,7 +71,7 @@ class PostgresRepository:
         incident: Incident,
         result: InvestigationResult,
         audit_events: list[dict[str, Any]],
-    ) -> None:
+    ) -> int:
         with self.psycopg.connect(self.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -139,6 +154,7 @@ class PostgresRepository:
                         for event in audit_events
                     ],
                 )
+                return investigation_id
 
     def list_reports(self) -> list[dict[str, Any]]:
         with self.psycopg.connect(self.database_url) as connection:
@@ -146,7 +162,9 @@ class PostgresRepository:
                 cursor.execute(
                     """
                     SELECT i.description, i.service, inv.root_cause, inv.confidence,
-                           inv.id
+                           inv.id, inv.created_at,
+                           (SELECT COUNT(*) FROM evidence e WHERE e.investigation_id = inv.id),
+                           (SELECT COUNT(*) FROM recommendations r WHERE r.investigation_id = inv.id)
                     FROM investigations inv
                     JOIN incidents i ON i.id = inv.incident_id
                     ORDER BY inv.created_at DESC
@@ -159,9 +177,81 @@ class PostgresRepository:
                         "rootCause": row[2],
                         "confidence": float(row[3]),
                         "investigationId": row[4],
+                        "createdAt": row[5].isoformat(),
+                        "evidenceCount": row[6],
+                        "recommendationCount": row[7],
                     }
                     for row in cursor.fetchall()
                 ]
+
+    def get_report(self, investigation_id: int) -> dict[str, Any] | None:
+        with self.psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT i.description, i.service, i.status, i.started_at,
+                           inv.root_cause, inv.confidence, inv.id, inv.created_at
+                    FROM investigations inv
+                    JOIN incidents i ON i.id = inv.incident_id
+                    WHERE inv.id = %s
+                    """,
+                    (investigation_id,),
+                )
+                row = cursor.fetchone()
+                if row is None:
+                    return None
+
+                cursor.execute(
+                    """
+                    SELECT source, finding, tool_name, collected_at
+                    FROM evidence
+                    WHERE investigation_id = %s
+                    ORDER BY collected_at, id
+                    """,
+                    (investigation_id,),
+                )
+                evidence = [
+                    {
+                        "source": evidence_row[0],
+                        "finding": evidence_row[1],
+                        "tool": evidence_row[2],
+                        "collectedAt": evidence_row[3].isoformat(),
+                    }
+                    for evidence_row in cursor.fetchall()
+                ]
+
+                cursor.execute(
+                    """
+                    SELECT action, reason, requires_approval, created_at
+                    FROM recommendations
+                    WHERE investigation_id = %s
+                    ORDER BY created_at, id
+                    """,
+                    (investigation_id,),
+                )
+                recommendations = [
+                    {
+                        "action": recommendation_row[0],
+                        "reason": recommendation_row[1],
+                        "requiresApproval": recommendation_row[2],
+                        "createdAt": recommendation_row[3].isoformat(),
+                    }
+                    for recommendation_row in cursor.fetchall()
+                ]
+
+                return {
+                    "incident": row[0],
+                    "service": row[1],
+                    "status": row[2],
+                    "startedAt": row[3].isoformat(),
+                    "rootCause": row[4],
+                    "confidence": float(row[5]),
+                    "investigationId": row[6],
+                    "createdAt": row[7].isoformat(),
+                    "evidence": evidence,
+                    "recommendedActions": [item["action"] for item in recommendations],
+                    "recommendations": recommendations,
+                }
 
     def get_trace(self, investigation_id: int) -> list[dict[str, Any]]:
         with self.psycopg.connect(self.database_url) as connection:

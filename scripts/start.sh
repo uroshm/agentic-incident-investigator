@@ -6,7 +6,6 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 MODEL="${LLM_MODEL:-llama3.1:8b}"
-MODE="ollama"
 OLLAMA_RUNTIME="host"
 
 usage() {
@@ -16,7 +15,6 @@ Usage: ./scripts/start.sh [option]
 Options:
   --host-ollama       Use Ollama running on the host machine (default)
   --docker-ollama     Run Ollama inside the optional Compose profile
-  --rules             Use the deterministic rules baseline without Ollama
   -h, --help          Show this help
 
 Environment:
@@ -52,14 +50,9 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --host-ollama)
       OLLAMA_RUNTIME="host"
-      MODE="ollama"
       ;;
     --docker-ollama)
       OLLAMA_RUNTIME="docker"
-      MODE="ollama"
-      ;;
-    --rules)
-      MODE="rules"
       ;;
     -h|--help)
       usage
@@ -77,11 +70,6 @@ done
 require_command docker
 require_command curl
 
-if [[ "$MODE" == "rules" ]]; then
-  echo "Starting deterministic investigation mode."
-  exec docker compose up --build
-fi
-
 if [[ "$OLLAMA_RUNTIME" == "host" ]]; then
   require_command ollama
   if ! curl --silent --fail http://localhost:11434/api/tags >/dev/null; then
@@ -93,11 +81,10 @@ if [[ "$OLLAMA_RUNTIME" == "host" ]]; then
     echo "Pulling local model: $MODEL"
     ollama pull "$MODEL"
   fi
-  echo "Starting Compose with host Ollama and model $MODEL."
-  export INVESTIGATION_MODE=ollama
+  echo "Starting Compose with host Ollama, model $MODEL, and frontend on http://localhost:3000."
   export LLM_BASE_URL="${LLM_BASE_URL:-http://host.docker.internal:11434}"
   export LLM_MODEL="$MODEL"
-  exec docker compose up --build
+  exec docker compose up --build postgres flyway business-saas incident-agent frontend prometheus
 fi
 
 echo "Starting the Docker Ollama service."
@@ -109,8 +96,7 @@ if ! docker compose --profile ollama exec -T ollama ollama list 2>/dev/null | aw
   docker compose --profile ollama exec ollama ollama pull "$MODEL"
 fi
 
-echo "Starting Compose with Docker Ollama and model $MODEL."
-export INVESTIGATION_MODE=ollama
+echo "Starting Compose with Docker Ollama, model $MODEL, and frontend on http://localhost:3000."
 export LLM_BASE_URL=http://ollama:11434
 export LLM_MODEL="$MODEL"
-exec docker compose --profile ollama up --build
+exec docker compose --profile ollama up --build postgres flyway business-saas incident-agent frontend prometheus
