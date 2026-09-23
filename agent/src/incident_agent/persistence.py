@@ -7,22 +7,39 @@ from .models import Incident, InvestigationResult
 
 
 class InvestigationRepository(Protocol):
-    def save(self, incident: Incident, result: InvestigationResult, audit_events: list[dict[str, Any]]) -> None:
-        ...
+    def save(
+        self,
+        incident: Incident,
+        result: InvestigationResult,
+        audit_events: list[dict[str, Any]],
+    ) -> None: ...
 
-    def list_reports(self) -> list[dict[str, Any]]:
-        ...
+    def list_reports(self) -> list[dict[str, Any]]: ...
+
+    def get_trace(self, investigation_id: int) -> list[dict[str, Any]]: ...
 
 
 class InMemoryRepository:
     def __init__(self) -> None:
         self.reports: list[dict[str, Any]] = []
+        self.traces: dict[int, list[dict[str, Any]]] = {}
 
-    def save(self, incident: Incident, result: InvestigationResult, audit_events: list[dict[str, Any]]) -> None:
-        self.reports.append(result.as_dict())
+    def save(
+        self,
+        incident: Incident,
+        result: InvestigationResult,
+        audit_events: list[dict[str, Any]],
+    ) -> None:
+        report = result.as_dict()
+        report["investigationId"] = len(self.reports) + 1
+        self.reports.append(report)
+        self.traces[report["investigationId"]] = list(result.trace)
 
     def list_reports(self) -> list[dict[str, Any]]:
         return list(self.reports)
+
+    def get_trace(self, investigation_id: int) -> list[dict[str, Any]]:
+        return list(self.traces.get(investigation_id, []))
 
 
 class PostgresRepository:
@@ -34,7 +51,12 @@ class PostgresRepository:
         self.psycopg = psycopg
         self.database_url = database_url
 
-    def save(self, incident: Incident, result: InvestigationResult, audit_events: list[dict[str, Any]]) -> None:
+    def save(
+        self,
+        incident: Incident,
+        result: InvestigationResult,
+        audit_events: list[dict[str, Any]],
+    ) -> None:
         with self.psycopg.connect(self.database_url) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -61,8 +83,29 @@ class PostgresRepository:
                     VALUES (%s, %s, %s, %s, %s)
                     """,
                     [
-                        (investigation_id, item.source, item.finding, item.tool, item.collected_at)
+                        (
+                            investigation_id,
+                            item.source,
+                            item.finding,
+                            item.tool,
+                            item.collected_at,
+                        )
                         for item in result.evidence
+                    ],
+                )
+                cursor.executemany(
+                    """
+                    INSERT INTO model_turns (investigation_id, turn_number, direction, payload)
+                    VALUES (%s, %s, %s, %s::jsonb)
+                    """,
+                    [
+                        (
+                            investigation_id,
+                            turn.get("turn", 0),
+                            turn.get("direction", "unknown"),
+                            json.dumps(turn),
+                        )
+                        for turn in result.trace
                     ],
                 )
                 cursor.executemany(
@@ -71,7 +114,12 @@ class PostgresRepository:
                     VALUES (%s, %s, %s, %s)
                     """,
                     [
-                        (investigation_id, item.action, item.reason, item.requires_approval)
+                        (
+                            investigation_id,
+                            item.action,
+                            item.reason,
+                            item.requires_approval,
+                        )
                         for item in result.recommendations
                     ],
                 )
@@ -111,6 +159,28 @@ class PostgresRepository:
                         "rootCause": row[2],
                         "confidence": float(row[3]),
                         "investigationId": row[4],
+                    }
+                    for row in cursor.fetchall()
+                ]
+
+    def get_trace(self, investigation_id: int) -> list[dict[str, Any]]:
+        with self.psycopg.connect(self.database_url) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT turn_number, direction, payload, created_at
+                    FROM model_turns
+                    WHERE investigation_id = %s
+                    ORDER BY turn_number, id
+                    """,
+                    (investigation_id,),
+                )
+                return [
+                    {
+                        "turn": row[0],
+                        "direction": row[1],
+                        "payload": row[2],
+                        "createdAt": row[3].isoformat(),
                     }
                     for row in cursor.fetchall()
                 ]

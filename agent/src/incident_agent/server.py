@@ -8,13 +8,30 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Dict
 
 from .models import Incident
+from .llm import OllamaClient
 from .orchestration.investigator import Investigator
+from .orchestration.model_investigator import ModelInvestigator
 from .persistence import build_repository
 from .tools.live import build_live_gateway
 
 
+def build_investigator() -> Investigator | ModelInvestigator:
+    gateway = build_live_gateway(
+        os.getenv("BUSINESS_SAAS_URL", "http://127.0.0.1:8080")
+    )
+    if os.getenv("INVESTIGATION_MODE", "rules").lower() == "ollama":
+        return ModelInvestigator(
+            gateway,
+            OllamaClient(
+                os.getenv("LLM_BASE_URL", "http://127.0.0.1:11434"),
+                os.getenv("LLM_MODEL", "llama3.1:8b"),
+            ),
+        )
+    return Investigator(gateway)
+
+
 class AgentRequestHandler(BaseHTTPRequestHandler):
-    investigator = Investigator(build_live_gateway(os.getenv("BUSINESS_SAAS_URL", "http://127.0.0.1:8080")))
+    investigator = build_investigator()
     repository = build_repository(os.getenv("DATABASE_URL"))
 
     def log_message(self, format: str, *args: object) -> None:
@@ -34,9 +51,29 @@ class AgentRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 - required by BaseHTTPRequestHandler
         if self.path == "/health":
-            self._send_json({"service": "incident-agent", "status": "healthy"})
+            self._send_json(
+                {
+                    "service": "incident-agent",
+                    "status": "healthy",
+                    "mode": type(self.investigator).__name__,
+                }
+            )
         elif self.path == "/investigations":
             self._send_json({"investigations": self.repository.list_reports()})
+        elif self.path.startswith("/investigations/") and self.path.endswith("/trace"):
+            try:
+                investigation_id = int(self.path.split("/")[2])
+            except (IndexError, ValueError):
+                self._send_json(
+                    {"error": "invalid_investigation_id"}, HTTPStatus.BAD_REQUEST
+                )
+                return
+            self._send_json(
+                {
+                    "investigationId": investigation_id,
+                    "trace": self.repository.get_trace(investigation_id),
+                }
+            )
         else:
             self._send_json({"error": "not_found"}, HTTPStatus.NOT_FOUND)
 
@@ -54,10 +91,21 @@ class AgentRequestHandler(BaseHTTPRequestHandler):
             report = result.as_dict()
             audit_events = self.investigator.gateway.audit.events[audit_start:]
             self.repository.save(incident, result, audit_events)
-            print(json.dumps({"event": "investigation_report", "report": report}), flush=True)
+            print(
+                json.dumps({"event": "investigation_report", "report": report}),
+                flush=True,
+            )
             self._send_json(report, HTTPStatus.CREATED)
-        except (TypeError, ValueError, KeyError) as exc:
-            self._send_json({"error": "invalid_request", "detail": str(exc)}, HTTPStatus.BAD_REQUEST)
+        except (
+            TypeError,
+            ValueError,
+            KeyError,
+            RuntimeError,
+            json.JSONDecodeError,
+        ) as exc:
+            self._send_json(
+                {"error": "invalid_request", "detail": str(exc)}, HTTPStatus.BAD_REQUEST
+            )
 
 
 def main() -> None:

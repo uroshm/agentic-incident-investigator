@@ -9,10 +9,19 @@ from .tools.mock import build_mock_gateway
 
 
 def main() -> int:
-    description = " ".join(sys.argv[1:]).strip() or "checkout-service is returning HTTP 500 errors"
+    description = (
+        " ".join(sys.argv[1:]).strip()
+        or "checkout-service is returning HTTP 500 errors"
+    )
     gateway = build_mock_gateway()
-    result = Investigator(gateway).investigate(Incident(description=description, service="checkout-service"))
-    print(json.dumps({"result": result.as_dict(), "audit": gateway.audit.events}, indent=2))
+    result = Investigator(gateway).investigate(
+        Incident(description=description, service="checkout-service")
+    )
+    print(
+        json.dumps(
+            {"result": result.as_dict(), "audit": gateway.audit.events}, indent=2
+        )
+    )
     return 0
 
 

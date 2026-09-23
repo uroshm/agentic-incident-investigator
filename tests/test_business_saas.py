@@ -1,6 +1,10 @@
 import unittest
 
-from services.business_saas.server import DatabasePoolExhaustedError, SCENARIO_NAME, SaaSState
+from services.business_saas.server import (
+    DatabasePoolExhaustedError,
+    SCENARIO_NAME,
+    SaaSState,
+)
 
 
 class SaaSStateTests(unittest.TestCase):
@@ -12,7 +16,9 @@ class SaaSStateTests(unittest.TestCase):
         snapshot = state.snapshot()
         self.assertEqual(snapshot["status"], "degraded")
         self.assertEqual(snapshot["incident"], SCENARIO_NAME)
-        self.assertEqual(snapshot["db_connections_active"], snapshot["db_connections_max"])
+        self.assertEqual(
+            snapshot["db_connections_active"], snapshot["db_connections_max"]
+        )
 
         state.toggle_incident(False)
         self.assertEqual(state.snapshot()["status"], "healthy")

@@ -16,6 +16,8 @@ class ToolSpec:
     name: str
     access: AccessLevel
     handler: Callable[..., Any]
+    description: str = ""
+    input_schema: dict[str, Any] | None = None
 
 
 class AuditLog:
@@ -23,7 +25,13 @@ class AuditLog:
         self.events: list[dict[str, Any]] = []
 
     def record(self, event: str, **details: Any) -> None:
-        self.events.append({"timestamp": datetime.now(timezone.utc).isoformat(), "event": event, **details})
+        self.events.append(
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "event": event,
+                **details,
+            }
+        )
 
 
 class ToolGateway:
@@ -46,7 +54,9 @@ class ToolGateway:
         if spec.access is AccessLevel.APPROVAL_REQUIRED and not approval_granted:
             self.audit.record("tool_call_denied", tool=name, reason="approval_required")
             raise ToolDenied(f"Approval required for tool: {name}")
-        self.audit.record("tool_call_started", tool=name, access=spec.access.value, arguments=kwargs)
+        self.audit.record(
+            "tool_call_started", tool=name, access=spec.access.value, arguments=kwargs
+        )
         try:
             result = spec.handler(**kwargs)
         except Exception as exc:

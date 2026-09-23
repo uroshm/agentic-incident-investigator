@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from typing import Any
 
 
 class AccessLevel(str, Enum):
@@ -39,6 +40,7 @@ class InvestigationResult:
     confidence: float
     evidence: tuple[Evidence, ...]
     recommendations: tuple[Recommendation, ...]
+    trace: tuple[dict[str, Any], ...] = ()
 
     def as_dict(self) -> dict:
         return {
@@ -46,6 +48,9 @@ class InvestigationResult:
             "service": self.incident.service,
             "rootCause": self.root_cause,
             "confidence": self.confidence,
-            "evidence": [{"source": e.source, "finding": e.finding, "tool": e.tool} for e in self.evidence],
+            "evidence": [
+                {"source": e.source, "finding": e.finding, "tool": e.tool}
+                for e in self.evidence
+            ],
             "recommendedActions": [r.action for r in self.recommendations],
         }
